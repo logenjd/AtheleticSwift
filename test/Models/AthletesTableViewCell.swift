@@ -9,6 +9,7 @@ import UIKit
 
 class AthletesTableViewCell: UITableViewCell {
 
+    @IBOutlet weak var collectionView: UICollectionView!
     override func awakeFromNib() {
         super.awakeFromNib()
         // Initialization code

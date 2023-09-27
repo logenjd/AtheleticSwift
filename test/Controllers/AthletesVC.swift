@@ -6,63 +6,95 @@
 //
 
 import UIKit
-class AthletesVC: UIViewController, UICollectionViewDelegate, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
+class AthletesVC: UIViewController {
     
-    @IBOutlet weak var collectionView: UICollectionView!
+    
+    
+    @IBOutlet weak var tableView: UITableView!
+    let refreshControl = UIRefreshControl()
     let flowLayout: UICollectionViewFlowLayout = {
         let layout = UICollectionViewFlowLayout()
         layout.minimumInteritemSpacing = 5
         layout.minimumLineSpacing = 5
+        layout.scrollDirection = .horizontal
         layout.sectionInset = UIEdgeInsets(top: 5, left: 5, bottom: 5, right: 5)
         return layout
     }()
     var athletesList:[ModelAthlete]?
+    var gamesList:[ModelGame]?
+    var athletsViewModel = AthletsViewModel()
     
-    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return athletesList?.count ?? 0
-    }
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        
-        if let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "AthletesCollectionViewCell", for: indexPath) as? AthletesCollectionViewCell{
-            let athlete = self.athletesList?[indexPath.row]
-            cell.setCell(data: athlete)
-            return cell
-        }else{
-            return UICollectionViewCell()
-        }
-    }
-    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        let width = collectionView.bounds.width
-        let numberOfItemsPerRow: CGFloat = 3
-        let spacing: CGFloat = flowLayout.minimumInteritemSpacing
-        let availableWidth = width - spacing * (numberOfItemsPerRow + 1)
-        let itemDimension = floor(availableWidth / numberOfItemsPerRow)
-        return CGSize(width: itemDimension, height: itemDimension)
-    }
-
+   
     override func viewDidLoad() {
         super.viewDidLoad()
-        setupCollectionView()
+        setupTableView()
+        fetchData()
+    }
+    func setupTableView(){
+        tableView.register(UINib(nibName: "AthletesTableViewCell", bundle: nil), forCellReuseIdentifier: "AthletesTableViewCell")
+        refreshControl.attributedTitle = NSAttributedString(string: "Pull to refresh")
+        refreshControl.addTarget(self, action: #selector(self.refresh(_:)), for: .valueChanged)
+        tableView.addSubview(refreshControl)
+        tableView.dataSource = athletsViewModel
+        tableView.delegate = athletsViewModel
+        tableView.rowHeight = 100
+        self.athletsViewModel.reloadTableView(delegate: self,  gamesList: self.gamesList, athlete: nil)
+        tableView.reloadData()
+    }
+   
+    @objc func refresh(_ sender: AnyObject) {
+        self.fetchData()
+        
+    }
+    func fetchData(){
         NetworkManager.shared.getAllAthletes { data, error in
             self.athletesList = data
-            DispatchQueue.main.async {
-                self.collectionView.reloadData()
+            NetworkManager.shared.getAllGames { data, error in
+                self.gamesList = data
+                self.setupData()
+                DispatchQueue.main.async {
+                    self.athletsViewModel.reloadTableView(delegate: self,  gamesList: self.gamesList, athlete: nil)
+                    self.tableView.reloadData()
+                }
             }
         }
     }
-    func setupPage(){
-        let textAttributes = [NSAttributedString.Key.foregroundColor:UIColor.red]
-        navigationController?.navigationBar.titleTextAttributes = textAttributes
-        self.title = "Olympic Athletes"
-        self.navigationItem.title = "some title"
-        setupCollectionView()
+    func setupData(){
+        gamesList = gamesList?.sorted(by: { $0.yearDate.compare($1.yearDate) == .orderedDescending })
+        repeatCall(repeatIndex: 0, gamesList: gamesList ?? [])
     }
-    func setupCollectionView(){
-        collectionView.register(UINib(nibName: "AthletesCollectionViewCell", bundle: nil), forCellWithReuseIdentifier: "AthletesCollectionViewCell")
-        collectionView.dataSource = self
-        collectionView.delegate = self
-        collectionView.collectionViewLayout = self.flowLayout
-        collectionView.reloadData()
+    func repeatCall(repeatIndex:Int, gamesList:[ModelGame]){
+        if repeatIndex < gamesList.count {
+            let game = gamesList[repeatIndex]
+            NetworkManager.shared.getAthletesWithGame(id: "\(game.game_id ?? 0)", game:game) { data, game, error in
+                if repeatIndex < gamesList.count {
+                    let newIndex = repeatIndex + 1
+                    self.repeatCall(repeatIndex: newIndex, gamesList: gamesList)
+                    DispatchQueue.main.async {
+                        self.athletsViewModel.reloadTableView(delegate: self,  gamesList: self.gamesList, athlete: nil)
+                        self.tableView.reloadData()
+                    }
+                }else{
+                    DispatchQueue.main.async {
+                        self.refreshControl.endRefreshing()
+                    }
+                    self.gamesList = self.gamesList?.filter({$0.athletesList?.count ?? 0 > 0})
+                    DispatchQueue.main.async {
+                        self.athletsViewModel.reloadTableView(delegate: self,  gamesList: self.gamesList, athlete: nil)
+                        self.tableView.reloadData()
+                    }
+                }
+            }
+        }else{
+            DispatchQueue.main.async {
+                self.refreshControl.endRefreshing()
+            }
+            self.gamesList = self.gamesList?.filter({$0.athletesList?.count ?? 0 > 0})
+            DispatchQueue.main.async {
+                self.athletsViewModel.reloadTableView(delegate: self,  gamesList: self.gamesList, athlete: nil)
+                self.tableView.reloadData()
+            }
+        }
     }
+    
 }
-
